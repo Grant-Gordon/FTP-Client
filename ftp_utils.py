@@ -169,11 +169,8 @@ def dtp_connect(pi_sock: socket, *, backlog: int = 1):
 
 
 def start_recv_thread(data_sock: socket, *, chunk_size: int = 65536) -> Tuple[Thread, List[bytes]]: #TODO figure out byte size
-    """
-    Start a daemon thread that drains data_sock into a list of byte chunks.
-    Returns (thread, chunks). Caller should .join() the thread.
-    """
-    chunks: List[bytes] = []
+
+    chunks = []
 
     def _recv_all():
         try:
@@ -193,10 +190,6 @@ def start_recv_thread(data_sock: socket, *, chunk_size: int = 65536) -> Tuple[Th
     return t, chunks
 
 def start_send_file_thread(data_sock: socket, file_path: str, *, chunk_size: int = 65536) -> Thread:
-    """
-    Start a daemon thread that streams a local file over data_sock.
-    Caller should .join() the thread.
-    """
     def _send_file():
         try:
             with open(file_path, "rb") as f:

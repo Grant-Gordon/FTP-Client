@@ -5,6 +5,7 @@ from threading import Thread
 
 ########PI ONLY##########
 
+###############  OPEN  ###########
 #connect to ftp server on port 21 with USER & PASS
 def open(host: str) -> Tuple[Optional[socket], bool]:
     pi_sock = None
@@ -55,7 +56,7 @@ def open(host: str) -> Tuple[Optional[socket], bool]:
             pass
         return None, False
     
-    #Handle user Codes #TODO confirm codes 
+    #Handle user Codes 
     if code == 230:
         # Logged in without PASS
         return pi_sock, True
@@ -99,6 +100,8 @@ def cd(pi_sock: socket, path: str) -> bool:
         return False
     return True
 
+
+############  CLOSE  #############
 def close(PI_socket: socket):
     if PI_socket is None:
         print("No active connection to close")
@@ -121,6 +124,7 @@ def close(PI_socket: socket):
     return True
 
 
+############  QUIT  ###############
 def quit(PI_socket: socket):
     if PI_socket is not None:
         try:
@@ -136,8 +140,9 @@ def quit(PI_socket: socket):
                 pass
     print("Exiting program")
 
-
-########## DTP ###############
+#############################################
+#-----------  DTP  commands  ----------------
+#############################################
 
 #############  LS  #######################33
 def ls(pi_sock: socket, *, names_only: bool = False) -> bool:
@@ -153,7 +158,7 @@ def ls(pi_sock: socket, *, names_only: bool = False) -> bool:
     except Exception as e:
         print(f"PORT/accept failed: {e}"); return False
 
-    ftp_cmd = "NLST" if names_only else "LIST"
+    ftp_cmd = "LIST" #NLST?
     code, _ = utils.send_cmd(pi_sock, ftp_cmd)
     if code not in (125, 150):
         print(f"{ftp_cmd} not accepted: {code}")
@@ -178,7 +183,6 @@ def ls(pi_sock: socket, *, names_only: bool = False) -> bool:
     if chunks:
         print(b"".join(chunks).decode("utf-8", errors="replace"), end="")
     return True
-    return True
     
 
 #####################  GET  ######################
@@ -195,7 +199,7 @@ def get(PI_socket, remote:str, local_path: str):
         out.close
         return False
 
-    with utils.dtp_active_mode(PI_socket) as ds:
+    with utils.dtp_connect(PI_socket) as ds:
         code, _ = utils.send_cmd(PI_socket, f"RETR {remote}")
         if code not in (125, 150):
             print(f"RETR prelim failed: {code}")
@@ -231,7 +235,7 @@ def put(PI_socket, local_path, remote):
         print(f"TYPE I failed")
         return False
     
-    with utils.dtp_active_mode(PI_socket) as ds:
+    with utils.dtp_connect(PI_socket) as ds:
         code, _ = utils.send_cmd(PI_socket, f"STOR {remote}")
         if code not in (125, 150):
             print(f"STOR preliminary failed: code {code}")

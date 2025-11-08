@@ -7,6 +7,16 @@ from socket import socket, AF_INET, SOCK_STREAM, timeout
 
 
 def main():
+
+    # It shall support the following user commands
+    # open xxx.yyy.zzz: Connect to a remote FTP server and necessary user authentication
+    # dir or ls: Show list of remote files
+    # cd: Change current directory on the remote host
+    # get xxxxx Download file xxxxx from the remote host
+    # put yyyyy Upload file yyyyy to the remote host
+    # close terminate the current FTP session, but keep your program running
+    # quit terminate both the current FTP session and your program.
+#
     print("In main")
     PI_socket = None
     session_open = False
