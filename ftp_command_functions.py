@@ -99,103 +99,150 @@ def cd(pi_sock: socket, path: str) -> bool:
         return False
     return True
 
-def close():
-    return
-    
-def quit():
-    return 
-
-
-##########DTP###############
-
-def ls(PI_socket):
-    # TYPE A for lsitings
-    code, _ =  utils.send_cmd(PI_socket, "TYPE A")
-    if code //100 !=2:
-        print(f"TYPE A failed with code {code}")
+def close(PI_socket: socket):
+    if PI_socket is None:
+        print("No active connection to close")
         return False
     
-    local_ip = PI_socket.getsockname()[0]
-    receptionist = None
-    DTP_Socket= None
-
     try:
-        receptionist = socket(AF_INET, SOCK_STREAM)
-        receptionist.bind((local_ip, 0))
-        receptionist.listen(1)
-
-        _, local_port = receptionist.getsockname()
-
-        a, b, c, d, = local_ip.split(".")
-        hi, lo = (local_port // 256), (local_port % 256)
-        port_arg = f"{a},{b},{c},{d},{hi},{lo}"
-
-        code, _ = utils.send_cmd(PI_socket, f"PORT {port_arg}")
-        if code //100 !=2:
-            print(f"PORT failed with code {code}")
-            return False
-        DTP_Socket, _addr = receptionist.accept()
-
-
-        code, _ = utils.send_cmd(PI_socket, "NLST") #TODO: something about this
-        if code not in (125, 150):
-            print(f"NLST not accepted (code {code})")
-            return False
-        
-        chunks = []
-
-        def _recv_all():
-            try:
-                while True:
-                    buf = DTP_Socket.recv(8192)
-                    if not buf:
-                        break
-                    chunks.append(buf)
-            finally:
-                try:
-                    DTP_Socket.close()
-                except Exception:
-                    pass
-
-        worker = Thread(target=_recv_all, daemon=True)
-        worker.start()
-        worker.join()
-
-        # Emit listing to stdout (text)
-        if chunks:
-            try:
-                # Server sends text; decode defensively
-                print(b"".join(chunks).decode("utf-8", errors="replace"), end="")
-            except Exception as e:
-                print(f"[warn] decoding listing: {e}")
-
-        # 6) Expect secondary completion reply (226/250)
-        code, _ = utils.read_reply(PI_socket)
-        if code not in (226, 250):
-            print(f"NLST completion not OK (code {code})")
-            return False
-        return True
+        code, _ = utils.send_cmd(PI_socket, "QUIT")
+        if code //100 == 2:
+            print("Session closed by server.")
+        else:
+            print(f"Server returned code {code} on QUIT.")
 
     except Exception as e:
-        print(f"ls error: {e}")
-        return False
+        print(f"Failed to send Quit: {e}")
     finally:
         try:
-            if DTP_Socket:
-                DTP_Socket.close()
+            PI_socket.close()
         except Exception:
             pass
+    return True
+
+
+def quit(PI_socket: socket):
+    if PI_socket is not None:
         try:
-            if receptionist:
-                receptionist.close()
+            code, _  = utils.send_cmd(PI_socket, "QUIT")
+            if code //100 == 2:
+                print(f"Session closed by Server.")
         except Exception:
             pass
+        finally:
+            try:
+                PI_socket.close()
+            except Exception:
+                pass
+    print("Exiting program")
 
 
+########## DTP ###############
 
+#############  LS  #######################33
+def ls(pi_sock: socket, *, names_only: bool = False) -> bool:
+    if pi_sock is None:
+        print("Not connected."); return False
+
+    code, _ = utils.send_cmd(pi_sock, "TYPE A")
+    if not (200 <= code < 300):
+        print(f"TYPE A failed: {code}"); return False
+
+    try:
+        ds = utils.dtp_connect(pi_sock)  # <-- no 'with', just a normal function
+    except Exception as e:
+        print(f"PORT/accept failed: {e}"); return False
+
+    ftp_cmd = "NLST" if names_only else "LIST"
+    code, _ = utils.send_cmd(pi_sock, ftp_cmd)
+    if code not in (125, 150):
+        print(f"{ftp_cmd} not accepted: {code}")
+        ds.close()
+        return False
+
+    # receive directory listing (can use a thread helper or do it inline)
+    chunks = []
+    try:
+        while True:
+            buf = ds.recv(8192)
+            if not buf: break
+            chunks.append(buf)
+    finally:
+        try: ds.close()
+        except: pass
+
+    code, _ = utils.read_reply(pi_sock)
+    if code not in (226, 250):
+        print(f"{ftp_cmd} completion not OK: {code}"); return False
+
+    if chunks:
+        print(b"".join(chunks).decode("utf-8", errors="replace"), end="")
+    return True
+    return True
     
-def get():
-    return
+
+#####################  GET  ######################
+def get(PI_socket, remote:str, local_path: str):
+    try:
+        out = open(local_path, 'wb')
+    except OSError as e:
+        print (f" local open failed: {e}")
+        return False
     
-def put():
-    return
+    code, _ = utils.send_cmd(PI_socket, "TYPE I")
+    if not (200 <= code < 300):
+        print("TYPE I failed")
+        out.close
+        return False
+
+    with utils.dtp_active_mode(PI_socket) as ds:
+        code, _ = utils.send_cmd(PI_socket, f"RETR {remote}")
+        if code not in (125, 150):
+            print(f"RETR prelim failed: {code}")
+            out.close
+            return False
+        t, chunks = utils.start_recv_thread(ds)
+        t.join() #recieved all file Bytes
+
+    code, _ = utils.read_reply(PI_socket)
+    if code not in (226, 250):
+        print(f"RETR completion failed: code {code}")
+        out.close
+        return False
+    
+    try:
+        out.write(b"".join(chunks))
+    finally:
+        out.close()
+    return True
+    
+
+#############  PUT  ############ 
+def put(PI_socket, local_path, remote):
+    try:
+        with open(local_path, 'rb'):
+            pass
+    except OSError as e:
+        print(f"local open failed: {e}")
+        return False
+    
+    code, _ = utils.send_cmd(PI_socket, "TYPE I")
+    if not (200 <= code < 300):
+        print(f"TYPE I failed")
+        return False
+    
+    with utils.dtp_active_mode(PI_socket) as ds:
+        code, _ = utils.send_cmd(PI_socket, f"STOR {remote}")
+        if code not in (125, 150):
+            print(f"STOR preliminary failed: code {code}")
+            return False
+        t = utils.start_send_file_thread(ds, local_path)
+        t.join() # File fully sent
+
+    code, _ = utils.read_reply(PI_socket)
+    if code not in (226, 250):
+        print(f"STOR completion failed: code {code}")
+        return False
+    return True
+    
+    

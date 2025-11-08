@@ -1,6 +1,8 @@
 
 import socket 
 from typing import Tuple, List, Dict, Optional
+from threading import Thread
+from socket import socket, AF_INET, SOCK_STREAM, timeout
 def normalize_inputs(raw_input: str) -> tuple[str, list[str]]:
     
     if not raw_input or not raw_input.strip():
@@ -124,3 +126,91 @@ def read_reply(pi_sock: socket, *, chunk_size: int = 4096, timeout: Optional[flo
         raise ValueError(f"Malformed FTP reply (no numeric code): {reply_text!r}")
 
     return code, reply_text
+
+
+#Format a,b,c,d,hi,lo for the PORT command.
+def encode_port_arg(local_ip: str, port: int) -> str:
+    a, b, c, d = local_ip.split(".")
+    return f"{a},{b},{c},{d},{port//256},{port%256}"
+
+def dtp_connect(pi_sock: socket, *, backlog: int = 1):
+
+    local_ip = pi_sock.getsockname()[0]
+
+    receptionist: Optional[socket] = None
+    data_sock: Optional[socket] = None
+    try:
+        receptionist = socket(AF_INET, SOCK_STREAM)
+        receptionist.bind((local_ip, 0))     # ephemeral port
+        receptionist.listen(backlog)
+        _, local_port = receptionist.getsockname()
+
+        port_arg = encode_port_arg(local_ip, local_port)
+        code, _ = send_cmd(pi_sock, f"PORT {port_arg}")
+        if not (200 <= code < 300):
+            raise ConnectionError(f"PORT failed with code {code}")
+
+        data_sock, _ = receptionist.accept()
+        #don't need the listener anymore
+        receptionist.close()
+        receptionist = None
+        return data_sock
+
+    except Exception:
+        # if anything failed, clean up and re-raise
+        if data_sock:
+            try: data_sock.close()
+            except: pass
+        raise
+    finally:
+        if receptionist:
+            try: receptionist.close()
+            except: pass
+
+
+def start_recv_thread(data_sock: socket, *, chunk_size: int = 65536) -> Tuple[Thread, List[bytes]]: #TODO figure out byte size
+    """
+    Start a daemon thread that drains data_sock into a list of byte chunks.
+    Returns (thread, chunks). Caller should .join() the thread.
+    """
+    chunks: List[bytes] = []
+
+    def _recv_all():
+        try:
+            while True:
+                buf = data_sock.recv(chunk_size)
+                if not buf:
+                    break
+                chunks.append(buf)
+        finally:
+            try:
+                data_sock.close()
+            except Exception:
+                pass
+
+    t = Thread(target=_recv_all, daemon=True)
+    t.start()
+    return t, chunks
+
+def start_send_file_thread(data_sock: socket, file_path: str, *, chunk_size: int = 65536) -> Thread:
+    """
+    Start a daemon thread that streams a local file over data_sock.
+    Caller should .join() the thread.
+    """
+    def _send_file():
+        try:
+            with open(file_path, "rb") as f:
+                while True:
+                    buf = f.read(chunk_size)
+                    if not buf:
+                        break
+                    data_sock.sendall(buf)
+        finally:
+            try:
+                data_sock.close()
+            except Exception:
+                pass
+
+    t = Thread(target=_send_file, daemon=True)
+    t.start()
+    return t

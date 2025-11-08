@@ -38,28 +38,42 @@ def main():
             print("Invalid command. Type 'help' for usage information.")
 
     while(True):
-        user_input = input("\nType open IP for FTP server, or help:\n")
+        user_input = input("\nFor usage type: help:\n")
         cmd, args = utils.normalize_inputs(user_input)
 
         match cmd:
+            case "help" | "h" | "usage":
+                print("available Comands:")
+                print("  ls | dir                 - list remote directory")
+                print("  cd <path>                - change remote directory")
+                print("  get <remote> [local]     - download file")
+                print("  put <local> [remote]     - upload file")
+                print("  close                    - close current FTP session")
+                print("  quit                     - exit program")
             case "ls" | "dir":
                 cmds.ls(PI_socket)
             case "cd":
                 cmds.cd(PI_socket, args)
             case "get":
-                cmds.get()
+                cmds.get(PI_socket, args[0], args[1])
             case "put":
-                cmds.put()
+                cmds.put(PI_socket, args[0], args[1])
             case "close":
-                pass
+                if session_open==False:
+                    print("No session is opon. Cannot close. ")
+                    continue
+                cmds.close(PI_socket)
+                session_open=False
             case "quit":
-                pass
+                cmds.close(PI_socket)
+                break
+                
             case "open":
                 if session_open == True:
                     print(f"A Connection to a FTP Server is already open. Close the connection with cmd 'close'")
                     continue
                 cmds.open(PI_socket, args)
-        
+                session_open=True
         #switch cmd ... # (ls/dir, cd, get, put, closer, quit)
             
 
